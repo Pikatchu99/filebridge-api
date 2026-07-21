@@ -11,15 +11,23 @@ from rest_framework.response import Response
 
 from apps.datasets.exceptions import DatasetIngestionError, UnknownColumnError
 from apps.datasets.filters import build_row_queryset
-from apps.datasets.models import Dataset, DatasetRow
-from apps.datasets.permissions import IsOwner
+from apps.datasets.models import Dataset, DatasetApiKey, DatasetRow
+from apps.datasets.permissions import HasDatasetReadAccess, IsOwner
 from apps.datasets.serializers import (
+    DatasetApiKeyCreateSerializer,
+    DatasetApiKeySerializer,
     DatasetColumnSerializer,
     DatasetRowSerializer,
     DatasetSerializer,
     DatasetUploadSerializer,
 )
+from apps.datasets.services.api_keys import generate_api_key
 from apps.datasets.services.ingestion import ingest_csv_file
+
+# Actions reachable with either owner auth (session/basic) or a DatasetApiKey scoped to
+# the target dataset. Everything else (list, upload, destroy, key management) stays
+# strictly owner-only.
+_API_KEY_ELIGIBLE_ACTIONS = {"dataset_schema", "rows", "row_detail", "export"}
 
 
 class DatasetViewSet(
@@ -31,8 +39,20 @@ class DatasetViewSet(
     serializer_class = DatasetSerializer
     permission_classes = [IsAuthenticated, IsOwner]
 
+    def get_permissions(self):
+        if self.action in _API_KEY_ELIGIBLE_ACTIONS:
+            return [HasDatasetReadAccess()]
+        return super().get_permissions()
+
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
+            return Dataset.objects.none()
+
+        api_key = getattr(self.request, "auth", None)
+        if isinstance(api_key, DatasetApiKey):
+            return Dataset.objects.filter(pk=api_key.dataset_id)
+
+        if not self.request.user.is_authenticated:
             return Dataset.objects.none()
         return Dataset.objects.filter(owner=self.request.user)
 
@@ -100,6 +120,39 @@ class DatasetViewSet(
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="{dataset.name}.csv"'
         return response
+
+    @action(detail=True, methods=["get", "post"], url_path="api-keys", url_name="api-keys")
+    def api_keys(self, request, pk=None):
+        dataset = self.get_object()
+
+        if request.method == "POST":
+            serializer = DatasetApiKeyCreateSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            raw_key, key_hash = generate_api_key()
+            api_key = DatasetApiKey.objects.create(
+                dataset=dataset,
+                name=serializer.validated_data["name"],
+                key_hash=key_hash,
+            )
+            api_key.key = raw_key  # shown once, in this response only — never stored
+            return Response(
+                DatasetApiKeyCreateSerializer(api_key).data, status=status.HTTP_201_CREATED
+            )
+
+        keys = dataset.api_keys.all()
+        return Response(DatasetApiKeySerializer(keys, many=True).data)
+
+    @action(
+        detail=True,
+        methods=["delete"],
+        url_path=r"api-keys/(?P<key_pk>\d+)",
+        url_name="api-key-detail",
+    )
+    def revoke_api_key(self, request, pk=None, key_pk=None):
+        dataset = self.get_object()
+        api_key = get_object_or_404(DatasetApiKey, dataset=dataset, pk=key_pk)
+        api_key.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 _FORMULA_TRIGGER_CHARS = ("=", "+", "-", "@")

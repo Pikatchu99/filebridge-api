@@ -24,6 +24,8 @@ bridge between "I have a CSV" and "I have a real API".
 - Dynamic per-column filtering (`?campus=Paris&status=active`) and global `search`
 - Pagination on every list endpoint
 - Owner-only permissions (a dataset is only visible to the user who uploaded it)
+- Per-dataset API keys for read-only, machine-to-machine access (schema/rows/export only —
+  never upload, list, delete, or key management)
 - CSV export
 - OpenAPI schema + Swagger UI via drf-spectacular
 - Full test suite (models, ingestion service, API views) written test-first
@@ -100,6 +102,34 @@ Delete a dataset:
 curl -u alice:password -X DELETE http://localhost:8000/api/datasets/1/
 ```
 
+### API keys (read-only, machine-to-machine access)
+
+Create a key for a dataset (the raw key is only ever shown in this response — store it now):
+
+```bash
+curl -u alice:password -X POST http://localhost:8000/api/datasets/1/api-keys/ \
+  -d "name=n8n integration"
+```
+
+List a dataset's keys (never returns the raw key or its hash):
+
+```bash
+curl -u alice:password http://localhost:8000/api/datasets/1/api-keys/
+```
+
+Use a key — grants read-only access to *that one dataset's* schema/rows/export, nothing else:
+
+```bash
+curl -H "Authorization: Api-Key fbk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
+  http://localhost:8000/api/datasets/1/rows/
+```
+
+Revoke a key:
+
+```bash
+curl -u alice:password -X DELETE http://localhost:8000/api/datasets/1/api-keys/3/
+```
+
 ## Data model
 
 - **Dataset** — one uploaded file: owner, name, status (`pending`/`ready`/`failed`), row/column
@@ -108,8 +138,9 @@ curl -u alice:password -X DELETE http://localhost:8000/api/datasets/1/
   detected type, position.
 - **DatasetRow** — one row per dataset, stored as a `JSONField` keyed by normalized column
   names.
-- **DatasetApiKey** — reserved for future machine-to-machine access to a single dataset
-  (hashed key, not implemented in the API yet — see Roadmap).
+- **DatasetApiKey** — a hashed API key scoped to one dataset, for read-only
+  machine-to-machine access (see [API keys](#api-keys-read-only-machine-to-machine-access)
+  above).
 
 ## Installation
 
@@ -161,7 +192,6 @@ for the branching and commit conventions used in this repo.
 
 - `.xlsx` (Excel) support
 - Richer type detection + a data-quality report (invalid emails, duplicates, missing values)
-- API keys for machine-to-machine, per-dataset access
 - Public / read-only dataset sharing
 - Async ingestion for large files (Celery/RQ)
 - Upload size limits enforced with retry/import status
