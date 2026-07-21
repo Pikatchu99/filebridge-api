@@ -168,10 +168,8 @@ for the branching and commit conventions used in this repo.
 - Preview before import, post-import webhooks, rate limiting
 - Docker + deployment to Render/Fly/Railway
 
-## Interview learnings
+## Why this project
 
 This project was built to go deep on a specific set of Django/DRF topics rather than to ship a
 generic CRUD app: file upload handling, flexible modeling with `JSONField`, dynamic
 per-request filtering on JSON data, permissions, CSV parsing/export, and OpenAPI documentation.
-See [INTERVIEW_PREP.md](INTERVIEW_PREP.md) for the full set of questions and answers this
-project is meant to prepare.
