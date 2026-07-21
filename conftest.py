@@ -1,4 +1,17 @@
 import pytest
+from django.core.cache import cache
+
+
+@pytest.fixture(autouse=True)
+def _clear_throttle_cache():
+    """DRF throttling stores request counts in Django's cache, which pytest-django
+    doesn't reset between tests (unlike the database). Without this, throttle state
+    leaks across tests and can make an unrelated test flakily 429 once enough requests
+    have accumulated across the whole suite run.
+    """
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture(autouse=True)

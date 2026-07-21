@@ -30,6 +30,7 @@ from apps.datasets.services.api_keys import generate_api_key
 from apps.datasets.services.ingestion import preview_file
 from apps.datasets.services.quality import build_quality_report
 from apps.datasets.tasks import ingest_dataset_file
+from apps.datasets.throttling import DatasetApiKeyRateThrottle
 
 # Read-only actions reachable three ways: the owner (session/basic auth), a DatasetApiKey
 # scoped to the target dataset, or anyone at all if the dataset is public (see
@@ -51,6 +52,14 @@ class DatasetViewSet(
         if self.action in _API_KEY_ELIGIBLE_ACTIONS:
             return [HasDatasetReadAccess()]
         return super().get_permissions()
+
+    def get_throttles(self):
+        # An API key gets its own isolated rate bucket instead of sharing the global
+        # anon-by-IP bucket with every other key and every anonymous public-dataset
+        # reader behind the same IP (see DatasetApiKeyRateThrottle).
+        if isinstance(getattr(self.request, "auth", None), DatasetApiKey):
+            return [DatasetApiKeyRateThrottle()]
+        return super().get_throttles()
 
     def perform_destroy(self, instance):
         # FileField doesn't delete its file on model delete — without this, every
