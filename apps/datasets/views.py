@@ -10,7 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.datasets.exceptions import DatasetIngestionError, UnknownColumnError
+from apps.datasets.exceptions import UnknownColumnError
 from apps.datasets.filters import build_row_queryset
 from apps.datasets.models import Dataset, DatasetApiKey, DatasetRow
 from apps.datasets.permissions import HasDatasetReadAccess, IsOwner
@@ -25,8 +25,8 @@ from apps.datasets.serializers import (
     DatasetVisibilitySerializer,
 )
 from apps.datasets.services.api_keys import generate_api_key
-from apps.datasets.services.ingestion import ingest_csv_file, ingest_xlsx_file
 from apps.datasets.services.quality import build_quality_report
+from apps.datasets.tasks import ingest_dataset_file
 
 # Read-only actions reachable three ways: the owner (session/basic auth), a DatasetApiKey
 # scoped to the target dataset, or anyone at all if the dataset is public (see
@@ -48,6 +48,13 @@ class DatasetViewSet(
         if self.action in _API_KEY_ELIGIBLE_ACTIONS:
             return [HasDatasetReadAccess()]
         return super().get_permissions()
+
+    def perform_destroy(self, instance):
+        # FileField doesn't delete its file on model delete — without this, every
+        # upload-then-delete cycle leaks a file under MEDIA_ROOT indefinitely.
+        if instance.source_file:
+            instance.source_file.delete(save=False)
+        super().perform_destroy(instance)
 
     def get_queryset(self):
         if getattr(self, "swagger_fake_view", False):
@@ -80,27 +87,23 @@ class DatasetViewSet(
         serializer = DatasetUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        uploaded_file = serializer.validated_data["file"]
         dataset = Dataset.objects.create(
             owner=request.user,
             name=serializer.validated_data["name"],
             description=serializer.validated_data.get("description", ""),
             is_public=serializer.validated_data.get("is_public", False),
-            original_filename=serializer.validated_data["file"].name,
+            original_filename=uploaded_file.name,
+            source_file=uploaded_file,
         )
 
-        uploaded_file = serializer.validated_data["file"]
-        ingest = (
-            ingest_xlsx_file if uploaded_file.name.lower().endswith(".xlsx") else ingest_csv_file
-        )
-        try:
-            ingest(dataset, uploaded_file)
-        except DatasetIngestionError as exc:
-            return Response(
-                {"detail": str(exc), "dataset": DatasetSerializer(dataset).data},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        ingest_dataset_file.delay(dataset.id)
 
-        return Response(DatasetSerializer(dataset).data, status=status.HTTP_201_CREATED)
+        # In eager mode (tests, or a dev setup with no worker running) the task above
+        # already ran synchronously and resolved dataset's status; in a real deployment
+        # it's still PENDING here — the client polls GET .../ for the outcome.
+        dataset.refresh_from_db()
+        return Response(DatasetSerializer(dataset).data, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["get"], url_path="schema", url_name="schema")
     def dataset_schema(self, request, pk=None):

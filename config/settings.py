@@ -121,6 +121,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 
+# Uploaded source files (see Dataset.source_file), so the async ingestion worker can
+# read them independently of the request that created them.
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
@@ -176,6 +181,19 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
 # bounded by FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES, which only measures the compressed
 # upload. This caps rows read from the first worksheet regardless of compression ratio.
 FILEBRIDGE_MAX_XLSX_ROWS = env.int("FILEBRIDGE_MAX_XLSX_ROWS", default=200_000)
+
+
+# Celery — ingestion runs in a worker process, not the request/response cycle, so a
+# large file doesn't tie up a web worker or hit a request timeout. See config/celery.py
+# and apps/datasets/tasks.py. CELERY_TASK_ALWAYS_EAGER is forced True under pytest (see
+# conftest.py) so the test suite doesn't need a running broker/worker.
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_TASK_ALWAYS_EAGER", default=False)
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
 
 
 # Logging — surface security-relevant events (failed auth, permission denials,

@@ -1,0 +1,67 @@
+# Local-only stack: `docker compose up` gives you Postgres + Redis + the Django app +
+# a Celery worker, so async ingestion actually runs through a real broker instead of
+# CELERY_TASK_ALWAYS_EAGER (which is only for tests — see conftest.py). This project
+# isn't deployed anywhere; this is how you run the whole thing on your own machine.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: filebridge
+      POSTGRES_USER: filebridge
+      POSTGRES_PASSWORD: filebridge
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filebridge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    image: filebridge-api:local
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    environment: &app_env
+      SECRET_KEY: dev-only-not-secret-change-me
+      DEBUG: "True"
+      # 0.0.0.0 is the host runserver's own startup banner prints — worth allowing
+      # explicitly so pasting that URL into a browser doesn't 400 with DisallowedHost.
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+      DATABASE_URL: postgres://filebridge:filebridge@db:5432/filebridge
+      CELERY_BROKER_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    image: filebridge-api:local
+    command: celery -A config worker --loglevel=info
+    volumes:
+      - .:/app
+    environment: *app_env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
