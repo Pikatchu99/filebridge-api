@@ -1,6 +1,7 @@
 import csv
 import io
 
+from django.db.models import Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
@@ -20,6 +21,7 @@ from apps.datasets.serializers import (
     DatasetRowSerializer,
     DatasetSerializer,
     DatasetUploadSerializer,
+    DatasetVisibilitySerializer,
 )
 from apps.datasets.services.api_keys import generate_api_key
 from apps.datasets.services.ingestion import ingest_csv_file
@@ -48,13 +50,26 @@ class DatasetViewSet(
         if getattr(self, "swagger_fake_view", False):
             return Dataset.objects.none()
 
-        api_key = getattr(self.request, "auth", None)
-        if isinstance(api_key, DatasetApiKey):
-            return Dataset.objects.filter(pk=api_key.dataset_id)
+        if self.action in _API_KEY_ELIGIBLE_ACTIONS:
+            return self._readable_dataset_queryset()
 
         if not self.request.user.is_authenticated:
             return Dataset.objects.none()
         return Dataset.objects.filter(owner=self.request.user)
+
+    def _readable_dataset_queryset(self):
+        """Everything HasDatasetReadAccess would grant: public datasets, plus whichever
+        of "the request's own datasets" / "the API key's one dataset" applies.
+        """
+        query = Q(is_public=True)
+
+        api_key = getattr(self.request, "auth", None)
+        if isinstance(api_key, DatasetApiKey):
+            query |= Q(pk=api_key.dataset_id)
+        elif self.request.user.is_authenticated:
+            query |= Q(owner=self.request.user)
+
+        return Dataset.objects.filter(query)
 
     @action(detail=False, methods=["post"])
     @extend_schema(request=DatasetUploadSerializer, responses=DatasetSerializer)
@@ -120,6 +135,14 @@ class DatasetViewSet(
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="{dataset.name}.csv"'
         return response
+
+    @action(detail=True, methods=["patch"], url_path="visibility", url_name="visibility")
+    def visibility(self, request, pk=None):
+        dataset = self.get_object()
+        serializer = DatasetVisibilitySerializer(dataset, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(DatasetSerializer(dataset).data)
 
     @action(detail=True, methods=["get", "post"], url_path="api-keys", url_name="api-keys")
     def api_keys(self, request, pk=None):
