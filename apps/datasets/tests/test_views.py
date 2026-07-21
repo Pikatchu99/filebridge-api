@@ -131,6 +131,31 @@ class TestUpload:
         assert response.data["status"] == Dataset.Status.FAILED
         assert Dataset.objects.get(name="bad").status == Dataset.Status.FAILED
 
+    def test_accepts_a_valid_webhook_url(self, client_as, mocker):
+        mocker.patch("apps.datasets.tasks.send_webhook")
+        upload = SimpleUploadedFile(
+            "students.csv", b"name,email\nSarah,sarah@example.com\n", content_type="text/csv"
+        )
+        response = client_as.post(
+            self.url,
+            {"name": "students", "file": upload, "webhook_url": "https://8.8.8.8/hook"},
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data["webhook_url"] == "https://8.8.8.8/hook"
+
+    def test_rejects_a_webhook_url_pointing_at_a_private_address(self, client_as):
+        upload = SimpleUploadedFile(
+            "students.csv", b"name,email\nSarah,sarah@example.com\n", content_type="text/csv"
+        )
+        response = client_as.post(
+            self.url,
+            {"name": "students", "file": upload, "webhook_url": "http://127.0.0.1/hook"},
+            format="multipart",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not Dataset.objects.filter(name="students").exists()
+
     def test_uploads_xlsx_and_creates_ready_dataset(self, client_as):
         workbook = Workbook()
         sheet = workbook.active

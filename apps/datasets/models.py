@@ -23,6 +23,10 @@ class Dataset(models.Model):
     row_count = models.PositiveIntegerField(default=0)
     column_count = models.PositiveIntegerField(default=0)
     is_public = models.BooleanField(default=False)
+    # Fired once after every ingestion attempt (initial upload or retry), success or
+    # failure — see apps/datasets/tasks.py and services/webhooks.py. Validated against
+    # private/internal addresses at set-time and again right before sending.
+    webhook_url = models.URLField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -2,6 +2,7 @@ from django.conf import settings
 from rest_framework import serializers
 
 from apps.datasets.models import Dataset, DatasetApiKey, DatasetColumn, DatasetRow
+from apps.datasets.services.webhooks import validate_webhook_url as check_webhook_url
 
 
 class DatasetSerializer(serializers.ModelSerializer):
@@ -17,6 +18,7 @@ class DatasetSerializer(serializers.ModelSerializer):
             "row_count",
             "column_count",
             "is_public",
+            "webhook_url",
             "created_at",
             "updated_at",
         ]
@@ -40,10 +42,15 @@ class DatasetUploadSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Dataset
-        fields = ["id", "name", "description", "is_public", "file"]
+        fields = ["id", "name", "description", "is_public", "webhook_url", "file"]
 
     def validate_file(self, file):
         return validate_upload_file(file)
+
+    def validate_webhook_url(self, url):
+        if not url:
+            return url
+        return check_webhook_url(url)
 
 
 class DatasetPreviewSerializer(serializers.Serializer):

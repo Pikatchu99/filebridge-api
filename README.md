@@ -25,6 +25,8 @@ bridge between "I have a CSV" and "I have a real API".
 - Preview a file's detected schema and a row sample before committing to it, with nothing
   written to the database
 - Retry ingestion for a failed dataset from its already-stored file, no re-upload needed
+- Optional webhook fired once ingestion finishes (success or failure), with SSRF-aware
+  URL validation (blocks private/loopback/link-local/cloud-metadata destinations)
 - A data-quality report per dataset: missing values and type mismatches per column, plus
   exact-duplicate row detection
 - Flexible row storage via `JSONField` — no fixed table per dataset
@@ -49,6 +51,7 @@ bridge between "I have a CSV" and "I have a real API".
 - drf-spectacular (OpenAPI 3 / Swagger UI)
 - openpyxl (`.xlsx` ingestion)
 - Celery + Redis (async ingestion)
+- requests (webhook delivery)
 - django-filter
 - django-environ (12-factor config)
 - SQLite or PostgreSQL (via `DATABASE_URL`) — the Docker Compose stack uses Postgres
@@ -78,6 +81,16 @@ curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
 curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
   -F "name=inscriptions" \
   -F "file=@inscriptions.xlsx"
+```
+
+Optionally, get notified when ingestion finishes by passing a `webhook_url` at upload time
+(see [Webhooks](#webhooks) below):
+
+```bash
+curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
+  -F "name=inscriptions" \
+  -F "file=@inscriptions.csv" \
+  -F "webhook_url=https://example.com/hooks/filebridge"
 ```
 
 List your datasets:
@@ -200,6 +213,40 @@ curl -u alice:password http://localhost:8000/api/datasets/1/quality/
 }
 ```
 
+### Webhooks
+
+Pass `webhook_url` when uploading (or leave it out — it's optional) to get a POST once
+ingestion finishes, whether it succeeds or fails:
+
+```json
+{
+  "event": "dataset.ready",
+  "dataset": {
+    "id": 1,
+    "name": "inscriptions",
+    "status": "ready",
+    "row_count": 42,
+    "column_count": 5,
+    "failure_reason": ""
+  }
+}
+```
+
+`event` is `"dataset.ready"` or `"dataset.failed"`. Delivery is best-effort: a failed or
+slow (>5s) webhook request is logged and otherwise ignored — it never affects the
+dataset's own status. Retrying a failed dataset (`POST .../retry/`) fires the webhook
+again for that new attempt; retry has its own tighter rate limit specifically because of
+that (see [Environment variables](#environment-variables), `THROTTLE_RATE_RETRY`).
+
+The URL is validated (scheme must be http/https, and it can't resolve to a
+private/loopback/link-local/reserved address — this includes cloud metadata endpoints
+like `169.254.169.254`) both when you set it and again immediately before every send.
+This is a security boundary, not just an input check: without it, a webhook URL would
+let this server be used to probe or reach internal network destinations it has access to
+but the public internet doesn't. See the docstring in
+[`services/webhooks.py`](apps/datasets/services/webhooks.py) for the one limitation this
+doesn't close (DNS rebinding between validation and the actual request).
+
 ## Data model
 
 - **Dataset** — one uploaded file: owner, name, status (`pending`/`ready`/`failed`), row/column
@@ -276,6 +323,7 @@ See [.env.example](.env.example):
 | `THROTTLE_RATE_ANON` | Rate limit for unauthenticated requests, per IP | `20/min` |
 | `THROTTLE_RATE_USER` | Rate limit for session/basic-auth requests, per user | `100/min` |
 | `THROTTLE_RATE_API_KEY` | Rate limit per `DatasetApiKey` — each key has its own bucket, independent of other keys and of anonymous traffic | `60/min` |
+| `THROTTLE_RATE_RETRY` | Rate limit for `POST .../retry/` specifically — tighter than the general user rate since a retry can re-fire a dataset's webhook | `10/min` |
 
 ## Async ingestion
 
@@ -303,11 +351,12 @@ ruff check .
 Both are enforced by CI on every push and pull request — see [CONTRIBUTING.md](CONTRIBUTING.md)
 for the branching and commit conventions used in this repo.
 
-## Roadmap (V2)
+## Known scope limits
 
-- Post-import webhooks
 - The data-quality report still loads a dataset's rows into memory on every request; fine
   at this scale, would move to counts precomputed at ingestion time if that changes
+- Webhook URL validation is DNS-rebinding-vulnerable in principle — see
+  [Webhooks](#webhooks) above
 
 ## Why this project
 
