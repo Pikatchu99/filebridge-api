@@ -25,7 +25,7 @@ from apps.datasets.serializers import (
     DatasetVisibilitySerializer,
 )
 from apps.datasets.services.api_keys import generate_api_key
-from apps.datasets.services.ingestion import ingest_csv_file
+from apps.datasets.services.ingestion import ingest_csv_file, ingest_xlsx_file
 from apps.datasets.services.quality import build_quality_report
 
 # Read-only actions reachable three ways: the owner (session/basic auth), a DatasetApiKey
@@ -88,8 +88,12 @@ class DatasetViewSet(
             original_filename=serializer.validated_data["file"].name,
         )
 
+        uploaded_file = serializer.validated_data["file"]
+        ingest = (
+            ingest_xlsx_file if uploaded_file.name.lower().endswith(".xlsx") else ingest_csv_file
+        )
         try:
-            ingest_csv_file(dataset, serializer.validated_data["file"])
+            ingest(dataset, uploaded_file)
         except DatasetIngestionError as exc:
             return Response(
                 {"detail": str(exc), "dataset": DatasetSerializer(dataset).data},

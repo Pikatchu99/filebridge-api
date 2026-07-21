@@ -4,3 +4,4 @@ drf-spectacular==0.30.0
 django-filter==26.1
 django-environ==0.14.0
 psycopg[binary]==3.3.4
+openpyxl==3.1.5

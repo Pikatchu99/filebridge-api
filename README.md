@@ -18,9 +18,10 @@ bridge between "I have a CSV" and "I have a real API".
 
 ## Features
 
-- CSV upload with automatic schema detection (column names, inferred type: string, number,
-  date, email, boolean, unknown — a type is assigned when at least 90% of a column's values
-  match it, so a handful of typos doesn't downgrade the whole column to "string")
+- CSV or Excel (`.xlsx`) upload with automatic schema detection (column names, inferred type:
+  string, number, date, email, boolean, unknown — a type is assigned when at least 90% of a
+  column's values match it, so a handful of typos doesn't downgrade the whole column to
+  "string")
 - A data-quality report per dataset: missing values and type mismatches per column, plus
   exact-duplicate row detection
 - Flexible row storage via `JSONField` — no fixed table per dataset
@@ -42,6 +43,7 @@ bridge between "I have a CSV" and "I have a real API".
 - Django 5.2 LTS
 - Django REST Framework 3.16
 - drf-spectacular (OpenAPI 3 / Swagger UI)
+- openpyxl (`.xlsx` ingestion)
 - django-filter
 - django-environ (12-factor config)
 - SQLite locally, PostgreSQL in production (via `DATABASE_URL`)
@@ -51,12 +53,17 @@ bridge between "I have a CSV" and "I have a real API".
 
 ## API examples
 
-Upload a CSV (creates the dataset and ingests it synchronously):
+Upload a CSV or Excel file (creates the dataset and ingests it synchronously — the format is
+picked from the file extension):
 
 ```bash
 curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
   -F "name=inscriptions" \
   -F "file=@inscriptions.csv"
+
+curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
+  -F "name=inscriptions" \
+  -F "file=@inscriptions.xlsx"
 ```
 
 List your datasets:
@@ -215,6 +222,7 @@ See [.env.example](.env.example):
 | `ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost,127.0.0.1` |
 | `DATABASE_URL` | DB connection string (sqlite:// or postgres://) | local SQLite file |
 | `FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES` | Max upload size in bytes | `10485760` (10 MB) |
+| `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from an `.xlsx` upload's first sheet — a zip archive's uncompressed size isn't bounded by the upload size limit above | `200000` |
 
 ## Running tests
 
@@ -233,7 +241,6 @@ for the branching and commit conventions used in this repo.
 
 ## Roadmap (V2)
 
-- `.xlsx` (Excel) support
 - Async ingestion for large files (Celery/RQ) — the data-quality report currently loads a
   dataset's rows into memory on every request; fine at this scale, would move to
   precomputed counts if that changes

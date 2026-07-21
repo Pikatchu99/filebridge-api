@@ -30,9 +30,11 @@ class DatasetUploadSerializer(serializers.ModelSerializer):
         model = Dataset
         fields = ["id", "name", "description", "is_public", "file"]
 
+    ALLOWED_EXTENSIONS = (".csv", ".xlsx")
+
     def validate_file(self, file):
-        if not file.name.lower().endswith(".csv"):
-            raise serializers.ValidationError("Only .csv files are supported in V1.")
+        if not file.name.lower().endswith(self.ALLOWED_EXTENSIONS):
+            raise serializers.ValidationError("Only .csv or .xlsx files are supported.")
         if file.size > settings.FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES:
             max_mb = settings.FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)
             raise serializers.ValidationError(f"File exceeds the {max_mb:.0f} MB size limit.")
