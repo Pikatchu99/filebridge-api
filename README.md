@@ -32,7 +32,8 @@ bridge between "I have a CSV" and "I have a real API".
 - Pagination on every list endpoint
 - Owner-only permissions (a dataset is only visible to the user who uploaded it)
 - Per-dataset API keys for read-only, machine-to-machine access (schema/rows/export only —
-  never upload, list, delete, or key management)
+  never upload, list, delete, or key management), each with its own independent rate limit
+  bucket — not shared with other keys or with anonymous traffic
 - Public / read-only dataset sharing: an owner can flip a dataset public so anyone can read
   its schema/rows/export with no authentication at all, without exposing it via `list` or
   granting any write/management access
@@ -272,6 +273,9 @@ See [.env.example](.env.example):
 | `FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES` | Max upload size in bytes | `10485760` (10 MB) |
 | `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from an `.xlsx` upload's first sheet | `200000` |
 | `CELERY_BROKER_URL` | Redis URL used as the Celery broker/result backend | `redis://localhost:6379/0` |
+| `THROTTLE_RATE_ANON` | Rate limit for unauthenticated requests, per IP | `20/min` |
+| `THROTTLE_RATE_USER` | Rate limit for session/basic-auth requests, per user | `100/min` |
+| `THROTTLE_RATE_API_KEY` | Rate limit per `DatasetApiKey` — each key has its own bucket, independent of other keys and of anonymous traffic | `60/min` |
 
 ## Async ingestion
 
@@ -302,7 +306,6 @@ for the branching and commit conventions used in this repo.
 ## Roadmap (V2)
 
 - Post-import webhooks
-- Per-API-key rate limiting (currently there's only the global anon/user throttle)
 - The data-quality report still loads a dataset's rows into memory on every request; fine
   at this scale, would move to counts precomputed at ingestion time if that changes
 

@@ -155,6 +155,8 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": env("THROTTLE_RATE_ANON", default="20/min"),
         "user": env("THROTTLE_RATE_USER", default="100/min"),
+        # Used by DatasetApiKeyRateThrottle — see DatasetViewSet.get_throttles().
+        "api_key": env("THROTTLE_RATE_API_KEY", default="60/min"),
     },
 }
 
