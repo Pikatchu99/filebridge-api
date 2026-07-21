@@ -119,3 +119,19 @@ class TestRetry:
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.data["status"] == Dataset.Status.FAILED
         assert response.data["failure_reason"]
+
+    def test_retry_has_its_own_tight_rate_limit(self, client_as, failed_dataset, settings):
+        settings.REST_FRAMEWORK = {
+            **settings.REST_FRAMEWORK,
+            "DEFAULT_THROTTLE_RATES": {
+                **settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],
+                "retry": "1/min",
+            },
+        }
+        url = reverse(self.url_name, args=[failed_dataset.id])
+
+        first = client_as.post(url)
+        second = client_as.post(url)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS

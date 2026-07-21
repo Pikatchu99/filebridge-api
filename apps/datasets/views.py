@@ -30,7 +30,7 @@ from apps.datasets.services.api_keys import generate_api_key
 from apps.datasets.services.ingestion import preview_file
 from apps.datasets.services.quality import build_quality_report
 from apps.datasets.tasks import ingest_dataset_file
-from apps.datasets.throttling import DatasetApiKeyRateThrottle
+from apps.datasets.throttling import DatasetApiKeyRateThrottle, RetryRateThrottle
 
 # Read-only actions reachable three ways: the owner (session/basic auth), a DatasetApiKey
 # scoped to the target dataset, or anyone at all if the dataset is public (see
@@ -59,6 +59,10 @@ class DatasetViewSet(
         # reader behind the same IP (see DatasetApiKeyRateThrottle).
         if isinstance(getattr(self.request, "auth", None), DatasetApiKey):
             return [DatasetApiKeyRateThrottle()]
+        # Retrying re-fires a dataset's webhook if it has one — a much tighter cap
+        # than the general user rate (see RetryRateThrottle).
+        if self.action == "retry":
+            return [RetryRateThrottle()]
         return super().get_throttles()
 
     def perform_destroy(self, instance):
@@ -105,6 +109,7 @@ class DatasetViewSet(
             name=serializer.validated_data["name"],
             description=serializer.validated_data.get("description", ""),
             is_public=serializer.validated_data.get("is_public", False),
+            webhook_url=serializer.validated_data.get("webhook_url", ""),
             original_filename=uploaded_file.name,
             source_file=uploaded_file,
         )

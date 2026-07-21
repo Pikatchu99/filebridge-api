@@ -5,6 +5,7 @@ from celery import shared_task
 from apps.datasets.exceptions import DatasetIngestionError
 from apps.datasets.models import Dataset
 from apps.datasets.services.ingestion import ingest_csv_file, ingest_xlsx_file
+from apps.datasets.services.webhooks import send_webhook
 
 logger = logging.getLogger(__name__)
 
@@ -29,3 +30,6 @@ def ingest_dataset_file(dataset_id: int) -> None:
         ingest(dataset, dataset.source_file)
     except DatasetIngestionError:
         logger.info("Ingestion failed for dataset %s: %s", dataset_id, dataset.failure_reason)
+
+    if dataset.webhook_url:
+        send_webhook(dataset)
