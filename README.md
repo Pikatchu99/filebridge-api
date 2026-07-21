@@ -19,7 +19,10 @@ bridge between "I have a CSV" and "I have a real API".
 ## Features
 
 - CSV upload with automatic schema detection (column names, inferred type: string, number,
-  date, email, boolean, unknown)
+  date, email, boolean, unknown — a type is assigned when at least 90% of a column's values
+  match it, so a handful of typos doesn't downgrade the whole column to "string")
+- A data-quality report per dataset: missing values and type mismatches per column, plus
+  exact-duplicate row detection
 - Flexible row storage via `JSONField` — no fixed table per dataset
 - Dynamic per-column filtering (`?campus=Paris&status=active`) and global `search`
 - Pagination on every list endpoint
@@ -151,6 +154,25 @@ curl http://localhost:8000/api/datasets/1/rows/
 `list`/`retrieve`/upload/delete/key-management stay owner-only regardless of visibility —
 sharing only exposes schema/rows/row-detail/export for the exact dataset ID you hand out.
 
+### Data quality report
+
+Same read-access tier as schema/rows/export (owner, API key, or public dataset):
+
+```bash
+curl -u alice:password http://localhost:8000/api/datasets/1/quality/
+```
+
+```json
+{
+  "row_count": 42,
+  "duplicate_row_count": 2,
+  "columns": [
+    {"name": "email", "detected_type": "email", "missing_count": 0, "invalid_count": 1},
+    {"name": "campus", "detected_type": "string", "missing_count": 3, "invalid_count": 0}
+  ]
+}
+```
+
 ## Data model
 
 - **Dataset** — one uploaded file: owner, name, status (`pending`/`ready`/`failed`), row/column
@@ -212,8 +234,9 @@ for the branching and commit conventions used in this repo.
 ## Roadmap (V2)
 
 - `.xlsx` (Excel) support
-- Richer type detection + a data-quality report (invalid emails, duplicates, missing values)
-- Async ingestion for large files (Celery/RQ)
+- Async ingestion for large files (Celery/RQ) — the data-quality report currently loads a
+  dataset's rows into memory on every request; fine at this scale, would move to
+  precomputed counts if that changes
 - Upload size limits enforced with retry/import status
 - Preview before import, post-import webhooks, rate limiting
 - Docker + deployment to Render/Fly/Railway

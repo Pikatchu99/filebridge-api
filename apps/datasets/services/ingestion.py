@@ -11,11 +11,9 @@ from django.db import transaction
 
 from apps.datasets.exceptions import EmptyFileError, InvalidCsvError, NoHeaderError
 from apps.datasets.models import Dataset, DatasetColumn, DatasetRow
+from apps.datasets.services.type_detection import detect_column_type
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_BOOLEAN_VALUES = {"true", "false"}
 
 
 def normalize_column_name(raw: str, seen: dict | None = None) -> str:
@@ -40,30 +38,6 @@ def normalize_column_name(raw: str, seen: dict | None = None) -> str:
         candidate = f"{slug}_{seen[slug]}"
     seen[candidate] = 1
     return candidate
-
-
-def _is_number(value: str) -> bool:
-    try:
-        float(value)
-    except ValueError:
-        return False
-    return True
-
-
-def detect_column_type(values: list[str]) -> str:
-    """Infer a DatasetColumn.ColumnType from a sample of raw string values."""
-    non_empty = [v.strip() for v in values if v and v.strip()]
-    if not non_empty:
-        return DatasetColumn.ColumnType.UNKNOWN
-    if all(_EMAIL_RE.match(v) for v in non_empty):
-        return DatasetColumn.ColumnType.EMAIL
-    if all(v.lower() in _BOOLEAN_VALUES for v in non_empty):
-        return DatasetColumn.ColumnType.BOOLEAN
-    if all(_is_number(v) for v in non_empty):
-        return DatasetColumn.ColumnType.NUMBER
-    if all(_DATE_RE.match(v) for v in non_empty):
-        return DatasetColumn.ColumnType.DATE
-    return DatasetColumn.ColumnType.STRING
 
 
 def ingest_csv_file(dataset: Dataset, file_obj) -> None:
