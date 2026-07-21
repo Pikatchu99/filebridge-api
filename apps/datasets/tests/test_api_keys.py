@@ -209,12 +209,27 @@ class TestApiKeyAuthentication:
             reverse("dataset-api-key-detail", args=[ready_dataset.id, key_id])
         ).status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    def test_malformed_authorization_header_is_ignored_not_crashed(self, ready_dataset):
-        for header in ["api-key sometoken", "Api-Keysometoken", "Bearer sometoken", "Api-Key "]:
+    def test_unrecognized_header_falls_through_to_ordinary_private_dataset_denial(
+        self, ready_dataset
+    ):
+        # These don't match the "Api-Key <token>" scheme at all, so
+        # DatasetApiKeyAuthentication.authenticate() returns None (no exception) and the
+        # request proceeds as anonymous — denied the same way any anonymous request to a
+        # private dataset is denied (404, see test_public_sharing.py).
+        for header in ["api-key sometoken", "Api-Keysometoken", "Bearer sometoken"]:
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=header)
             response = client.get(reverse("dataset-schema", args=[ready_dataset.id]))
-            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_api_key_scheme_with_no_token_is_rejected(self, ready_dataset):
+        # Matches the "Api-Key " prefix but carries no token, so it *does* raise
+        # AuthenticationFailed during authentication (forced to 403, see
+        # test_requires_authentication in test_views.py for why).
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION="Api-Key ")
+        response = client.get(reverse("dataset-schema", args=[ready_dataset.id]))
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_garbage_key_is_rejected(self, ready_dataset):
         client = api_key_client("not-a-real-key")

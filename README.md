@@ -26,6 +26,9 @@ bridge between "I have a CSV" and "I have a real API".
 - Owner-only permissions (a dataset is only visible to the user who uploaded it)
 - Per-dataset API keys for read-only, machine-to-machine access (schema/rows/export only —
   never upload, list, delete, or key management)
+- Public / read-only dataset sharing: an owner can flip a dataset public so anyone can read
+  its schema/rows/export with no authentication at all, without exposing it via `list` or
+  granting any write/management access
 - CSV export
 - OpenAPI schema + Swagger UI via drf-spectacular
 - Full test suite (models, ingestion service, API views) written test-first
@@ -130,6 +133,24 @@ Revoke a key:
 curl -u alice:password -X DELETE http://localhost:8000/api/datasets/1/api-keys/3/
 ```
 
+### Public sharing
+
+Make a dataset public (owner-only; only `is_public` is writable through this endpoint):
+
+```bash
+curl -u alice:password -X PATCH http://localhost:8000/api/datasets/1/visibility/ \
+  -d "is_public=true"
+```
+
+Anyone can now read it — no credentials needed:
+
+```bash
+curl http://localhost:8000/api/datasets/1/rows/
+```
+
+`list`/`retrieve`/upload/delete/key-management stay owner-only regardless of visibility —
+sharing only exposes schema/rows/row-detail/export for the exact dataset ID you hand out.
+
 ## Data model
 
 - **Dataset** — one uploaded file: owner, name, status (`pending`/`ready`/`failed`), row/column
@@ -192,7 +213,6 @@ for the branching and commit conventions used in this repo.
 
 - `.xlsx` (Excel) support
 - Richer type detection + a data-quality report (invalid emails, duplicates, missing values)
-- Public / read-only dataset sharing
 - Async ingestion for large files (Celery/RQ)
 - Upload size limits enforced with retry/import status
 - Preview before import, post-import webhooks, rate limiting

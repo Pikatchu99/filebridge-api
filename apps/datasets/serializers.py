@@ -39,6 +39,14 @@ class DatasetUploadSerializer(serializers.ModelSerializer):
         return file
 
 
+class DatasetVisibilitySerializer(serializers.ModelSerializer):
+    """Only field an owner can change post-upload: whether the dataset is publicly readable."""
+
+    class Meta:
+        model = Dataset
+        fields = ["is_public"]
+
+
 class DatasetColumnSerializer(serializers.ModelSerializer):
     class Meta:
         model = DatasetColumn
