@@ -17,6 +17,10 @@ class InvalidCsvError(DatasetIngestionError):
     """Raised when the uploaded file isn't valid CSV/text (bad encoding, malformed rows)."""
 
 
+class InvalidExcelError(DatasetIngestionError):
+    """Raised when the uploaded file isn't a valid, readable .xlsx workbook."""
+
+
 class UnknownColumnError(Exception):
     """Raised when a filter references a column that doesn't exist on the dataset."""
 

@@ -4,6 +4,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
+from openpyxl import Workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -102,6 +103,29 @@ class TestUpload:
         response = client_as.post(self.url, {"name": "bad", "file": upload}, format="multipart")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert Dataset.objects.get(name="bad").status == Dataset.Status.FAILED
+
+    def test_uploads_xlsx_and_creates_ready_dataset(self, client_as):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["name", "email"])
+        sheet.append(["Sarah", "sarah@example.com"])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+
+        upload = SimpleUploadedFile(
+            "students.xlsx",
+            buffer.read(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response = client_as.post(
+            self.url, {"name": "students-xlsx", "file": upload}, format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data["status"] == Dataset.Status.READY
+        assert response.data["row_count"] == 1
+        assert response.data["column_count"] == 2
 
 
 class TestListAndRetrieve:

@@ -172,6 +172,11 @@ FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES = env.int(
 DATA_UPLOAD_MAX_MEMORY_SIZE = FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES + (1 * 1024 * 1024)
 FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
 
+# A .xlsx is a zip archive: its uncompressed size (and therefore row count) isn't
+# bounded by FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES, which only measures the compressed
+# upload. This caps rows read from the first worksheet regardless of compression ratio.
+FILEBRIDGE_MAX_XLSX_ROWS = env.int("FILEBRIDGE_MAX_XLSX_ROWS", default=200_000)
+
 
 # Logging — surface security-relevant events (failed auth, permission denials,
 # unhandled exceptions) instead of leaving them silent outside DEBUG.
