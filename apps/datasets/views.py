@@ -97,8 +97,8 @@ class DatasetViewSet(
 
         return Dataset.objects.filter(query)
 
-    @action(detail=False, methods=["post"])
     @extend_schema(request=DatasetUploadSerializer, responses=DatasetSerializer)
+    @action(detail=False, methods=["post"])
     def upload(self, request):
         serializer = DatasetUploadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -122,8 +122,8 @@ class DatasetViewSet(
         dataset.refresh_from_db()
         return Response(DatasetSerializer(dataset).data, status=status.HTTP_202_ACCEPTED)
 
-    @action(detail=False, methods=["post"])
     @extend_schema(request=DatasetPreviewSerializer, responses=DatasetPreviewResultSerializer)
+    @action(detail=False, methods=["post"])
     def preview(self, request):
         serializer = DatasetPreviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -195,8 +195,8 @@ class DatasetViewSet(
         response["Content-Disposition"] = f'attachment; filename="{dataset.name}.csv"'
         return response
 
-    @action(detail=True, methods=["get"], url_path="quality", url_name="quality")
     @extend_schema(responses=DataQualityReportSerializer)
+    @action(detail=True, methods=["get"], url_path="quality", url_name="quality")
     def quality(self, request, pk=None):
         dataset = self.get_object()
         return Response(build_quality_report(dataset))
