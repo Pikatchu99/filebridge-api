@@ -22,6 +22,9 @@ bridge between "I have a CSV" and "I have a real API".
   string, number, date, email, boolean, unknown — a type is assigned when at least 90% of a
   column's values match it, so a handful of typos doesn't downgrade the whole column to
   "string")
+- Preview a file's detected schema and a row sample before committing to it, with nothing
+  written to the database
+- Retry ingestion for a failed dataset from its already-stored file, no re-upload needed
 - A data-quality report per dataset: missing values and type mismatches per column, plus
   exact-duplicate row detection
 - Flexible row storage via `JSONField` — no fixed table per dataset
@@ -55,8 +58,16 @@ bridge between "I have a CSV" and "I have a real API".
 
 ## API examples
 
-Upload a CSV or Excel file (creates the dataset and ingests it synchronously — the format is
-picked from the file extension):
+Preview a file before committing to it — parses it and returns the detected schema plus a
+10-row sample, without creating a dataset or writing anything:
+
+```bash
+curl -u alice:password -X POST http://localhost:8000/api/datasets/preview/ \
+  -F "file=@inscriptions.csv"
+```
+
+Upload a CSV or Excel file (creates the dataset; the format is picked from the file
+extension — see [Async ingestion](#async-ingestion) for what happens next):
 
 ```bash
 curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
@@ -290,7 +301,6 @@ for the branching and commit conventions used in this repo.
 
 ## Roadmap (V2)
 
-- Preview before import (parse + show detected schema without committing rows)
 - Post-import webhooks
 - Per-API-key rate limiting (currently there's only the global anon/user throttle)
 - The data-quality report still loads a dataset's rows into memory on every request; fine

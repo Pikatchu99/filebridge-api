@@ -10,7 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.datasets.exceptions import UnknownColumnError
+from apps.datasets.exceptions import DatasetIngestionError, UnknownColumnError
 from apps.datasets.filters import build_row_queryset
 from apps.datasets.models import Dataset, DatasetApiKey, DatasetRow
 from apps.datasets.permissions import HasDatasetReadAccess, IsOwner
@@ -19,12 +19,15 @@ from apps.datasets.serializers import (
     DatasetApiKeyCreateSerializer,
     DatasetApiKeySerializer,
     DatasetColumnSerializer,
+    DatasetPreviewResultSerializer,
+    DatasetPreviewSerializer,
     DatasetRowSerializer,
     DatasetSerializer,
     DatasetUploadSerializer,
     DatasetVisibilitySerializer,
 )
 from apps.datasets.services.api_keys import generate_api_key
+from apps.datasets.services.ingestion import preview_file
 from apps.datasets.services.quality import build_quality_report
 from apps.datasets.tasks import ingest_dataset_file
 
@@ -104,6 +107,20 @@ class DatasetViewSet(
         # it's still PENDING here — the client polls GET .../ for the outcome.
         dataset.refresh_from_db()
         return Response(DatasetSerializer(dataset).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=False, methods=["post"])
+    @extend_schema(request=DatasetPreviewSerializer, responses=DatasetPreviewResultSerializer)
+    def preview(self, request):
+        serializer = DatasetPreviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        uploaded_file = serializer.validated_data["file"]
+
+        try:
+            result = preview_file(uploaded_file, uploaded_file.name)
+        except DatasetIngestionError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result)
 
     @action(detail=True, methods=["post"])
     def retry(self, request, pk=None):
