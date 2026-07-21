@@ -111,6 +111,12 @@ Export a dataset back to CSV:
 curl -u alice:password http://localhost:8000/api/datasets/1/export/ -o export.csv
 ```
 
+Retry a failed dataset (re-ingests the same uploaded file, no re-upload needed):
+
+```bash
+curl -u alice:password -X POST http://localhost:8000/api/datasets/1/retry/
+```
+
 Delete a dataset:
 
 ```bash
@@ -262,8 +268,10 @@ See [.env.example](.env.example):
 task, not the request. The response body reflects whatever the dataset's status already is
 at that moment (`pending` if the worker hasn't gotten to it yet, or `ready`/`failed` if it
 was fast enough that it already has); poll `GET /api/datasets/{id}/` to watch it resolve.
-There's no dedicated "retry" endpoint yet — upload again as a new dataset (see Roadmap).
-| `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from an `.xlsx` upload's first sheet — a zip archive's uncompressed size isn't bounded by the upload size limit above | `200000` |
+If ingestion fails (bad header, encoding, corrupt file), `POST /api/datasets/{id}/retry/`
+re-queues the same `source_file` without re-uploading — useful once you've confirmed the
+underlying file was fixed. It's rejected with `400` for any dataset that isn't currently
+`failed` (a `ready` dataset has nothing to retry; a `pending` one is already queued).
 
 ## Running tests
 
@@ -282,7 +290,6 @@ for the branching and commit conventions used in this repo.
 
 ## Roadmap (V2)
 
-- A dedicated retry endpoint for a failed dataset, instead of uploading again as a new one
 - Preview before import (parse + show detected schema without committing rows)
 - Post-import webhooks
 - Per-API-key rate limiting (currently there's only the global anon/user throttle)
