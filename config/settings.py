@@ -168,6 +168,12 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Turn CSV files into searchable, filterable REST datasets.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # Without this, drf-spectacular renders every FileField as a plain URI/string in
+    # request bodies (its default is response-shaped output reused for requests too),
+    # so Swagger UI shows a text box instead of a file picker for /upload/ and
+    # /preview/. Splitting request/response components lets file fields correctly get
+    # `format: binary` on the request side.
+    "COMPONENT_SPLIT_REQUEST": True,
 }
 
 # Upload limits (V1 scope: reject anything larger than this)
