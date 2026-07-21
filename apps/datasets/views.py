@@ -105,6 +105,24 @@ class DatasetViewSet(
         dataset.refresh_from_db()
         return Response(DatasetSerializer(dataset).data, status=status.HTTP_202_ACCEPTED)
 
+    @action(detail=True, methods=["post"])
+    def retry(self, request, pk=None):
+        dataset = self.get_object()
+        if dataset.status != Dataset.Status.FAILED:
+            return Response(
+                {"detail": "Only a failed dataset can be retried."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        dataset.status = Dataset.Status.PENDING
+        dataset.failure_reason = ""
+        dataset.save(update_fields=["status", "failure_reason"])
+
+        ingest_dataset_file.delay(dataset.id)
+
+        dataset.refresh_from_db()
+        return Response(DatasetSerializer(dataset).data, status=status.HTTP_202_ACCEPTED)
+
     @action(detail=True, methods=["get"], url_path="schema", url_name="schema")
     def dataset_schema(self, request, pk=None):
         dataset = self.get_object()
