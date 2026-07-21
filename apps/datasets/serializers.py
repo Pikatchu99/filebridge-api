@@ -59,6 +59,19 @@ class DatasetRowSerializer(serializers.ModelSerializer):
         fields = ["id", "row_index", "data"]
 
 
+class ColumnQualitySerializer(serializers.Serializer):
+    name = serializers.CharField()
+    detected_type = serializers.CharField()
+    missing_count = serializers.IntegerField()
+    invalid_count = serializers.IntegerField()
+
+
+class DataQualityReportSerializer(serializers.Serializer):
+    row_count = serializers.IntegerField()
+    duplicate_row_count = serializers.IntegerField()
+    columns = ColumnQualitySerializer(many=True)
+
+
 class DatasetApiKeySerializer(serializers.ModelSerializer):
     """Used for listing keys — never exposes key_hash, let alone the raw key."""
 
