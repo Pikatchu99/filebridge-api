@@ -15,6 +15,7 @@ from apps.datasets.filters import build_row_queryset
 from apps.datasets.models import Dataset, DatasetApiKey, DatasetRow
 from apps.datasets.permissions import HasDatasetReadAccess, IsOwner
 from apps.datasets.serializers import (
+    DataQualityReportSerializer,
     DatasetApiKeyCreateSerializer,
     DatasetApiKeySerializer,
     DatasetColumnSerializer,
@@ -25,11 +26,13 @@ from apps.datasets.serializers import (
 )
 from apps.datasets.services.api_keys import generate_api_key
 from apps.datasets.services.ingestion import ingest_csv_file
+from apps.datasets.services.quality import build_quality_report
 
-# Actions reachable with either owner auth (session/basic) or a DatasetApiKey scoped to
-# the target dataset. Everything else (list, upload, destroy, key management) stays
-# strictly owner-only.
-_API_KEY_ELIGIBLE_ACTIONS = {"dataset_schema", "rows", "row_detail", "export"}
+# Read-only actions reachable three ways: the owner (session/basic auth), a DatasetApiKey
+# scoped to the target dataset, or anyone at all if the dataset is public (see
+# HasDatasetReadAccess). Everything else (list, upload, destroy, key/visibility
+# management) stays strictly owner-only.
+_API_KEY_ELIGIBLE_ACTIONS = {"dataset_schema", "rows", "row_detail", "export", "quality"}
 
 
 class DatasetViewSet(
@@ -135,6 +138,12 @@ class DatasetViewSet(
         response = HttpResponse(buffer.getvalue(), content_type="text/csv")
         response["Content-Disposition"] = f'attachment; filename="{dataset.name}.csv"'
         return response
+
+    @action(detail=True, methods=["get"], url_path="quality", url_name="quality")
+    @extend_schema(responses=DataQualityReportSerializer)
+    def quality(self, request, pk=None):
+        dataset = self.get_object()
+        return Response(build_quality_report(dataset))
 
     @action(detail=True, methods=["patch"], url_path="visibility", url_name="visibility")
     def visibility(self, request, pk=None):

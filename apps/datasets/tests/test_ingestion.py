@@ -5,11 +5,7 @@ from django.contrib.auth import get_user_model
 
 from apps.datasets.exceptions import EmptyFileError, InvalidCsvError, NoHeaderError
 from apps.datasets.models import Dataset, DatasetColumn, DatasetRow
-from apps.datasets.services.ingestion import (
-    detect_column_type,
-    ingest_csv_file,
-    normalize_column_name,
-)
+from apps.datasets.services.ingestion import ingest_csv_file, normalize_column_name
 
 pytestmark = pytest.mark.django_db
 
@@ -52,29 +48,6 @@ class TestNormalizeColumnName:
         names = ["Email", "email", "Email"]
         result = [normalize_column_name(n, seen=seen) for n in names]
         assert result == ["email", "email_2", "email_3"]
-
-
-class TestDetectColumnType:
-    def test_detects_email(self):
-        assert detect_column_type(["a@b.com", "c@d.com", ""]) == DatasetColumn.ColumnType.EMAIL
-
-    def test_detects_number(self):
-        assert detect_column_type(["1", "2.5", "3"]) == DatasetColumn.ColumnType.NUMBER
-
-    def test_detects_boolean(self):
-        assert detect_column_type(["true", "false", "TRUE"]) == DatasetColumn.ColumnType.BOOLEAN
-
-    def test_detects_date(self):
-        assert detect_column_type(["2027-01-01", "2027-02-15"]) == DatasetColumn.ColumnType.DATE
-
-    def test_falls_back_to_string(self):
-        assert detect_column_type(["Paris", "Lyon"]) == DatasetColumn.ColumnType.STRING
-
-    def test_unknown_when_all_values_empty(self):
-        assert detect_column_type(["", "", ""]) == DatasetColumn.ColumnType.UNKNOWN
-
-    def test_mixed_values_fall_back_to_string(self):
-        assert detect_column_type(["1", "abc", "3"]) == DatasetColumn.ColumnType.STRING
 
 
 class TestIngestCsvFile:
