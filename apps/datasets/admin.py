@@ -19,3 +19,8 @@ class DatasetAdmin(admin.ModelAdmin):
 @admin.register(DatasetApiKey)
 class DatasetApiKeyAdmin(admin.ModelAdmin):
     list_display = ["name", "dataset", "is_active", "created_at", "last_used_at"]
+    # key_hash is a SHA-256 digest, not sensitive on its own, but there's no reason to
+    # surface it anywhere beyond the one-time creation response — keep the admin
+    # change form from displaying it at all rather than relying on that being harmless.
+    exclude = ["key_hash"]
+    readonly_fields = ["dataset", "created_at", "last_used_at"]

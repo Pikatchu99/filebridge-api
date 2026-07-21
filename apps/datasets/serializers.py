@@ -1,7 +1,7 @@
 from django.conf import settings
 from rest_framework import serializers
 
-from apps.datasets.models import Dataset, DatasetColumn, DatasetRow
+from apps.datasets.models import Dataset, DatasetApiKey, DatasetColumn, DatasetRow
 
 
 class DatasetSerializer(serializers.ModelSerializer):
@@ -49,3 +49,26 @@ class DatasetRowSerializer(serializers.ModelSerializer):
     class Meta:
         model = DatasetRow
         fields = ["id", "row_index", "data"]
+
+
+class DatasetApiKeySerializer(serializers.ModelSerializer):
+    """Used for listing keys — never exposes key_hash, let alone the raw key."""
+
+    class Meta:
+        model = DatasetApiKey
+        fields = ["id", "name", "is_active", "created_at", "last_used_at"]
+        read_only_fields = fields
+
+
+class DatasetApiKeyCreateSerializer(serializers.ModelSerializer):
+    key = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = DatasetApiKey
+        fields = ["id", "name", "is_active", "created_at", "key"]
+        read_only_fields = ["id", "is_active", "created_at", "key"]
+
+    def validate_name(self, name):
+        if not name.strip():
+            raise serializers.ValidationError("This field may not be blank.")
+        return name
