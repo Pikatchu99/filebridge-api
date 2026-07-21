@@ -13,6 +13,10 @@ class Dataset(models.Model):
     )
     name = models.SlugField(max_length=100)
     original_filename = models.CharField(max_length=255)
+    # Kept around so the async ingestion task (running in a separate worker process,
+    # with no access to the original request) has something to read from. Not exposed
+    # via the API — see DatasetSerializer.
+    source_file = models.FileField(upload_to="uploads/%Y/%m/%d/", default="")
     description = models.TextField(blank=True, default="")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     failure_reason = models.CharField(max_length=255, blank=True, default="")

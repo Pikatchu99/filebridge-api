@@ -44,10 +44,12 @@ bridge between "I have a CSV" and "I have a real API".
 - Django REST Framework 3.16
 - drf-spectacular (OpenAPI 3 / Swagger UI)
 - openpyxl (`.xlsx` ingestion)
+- Celery + Redis (async ingestion)
 - django-filter
 - django-environ (12-factor config)
-- SQLite locally, PostgreSQL in production (via `DATABASE_URL`)
-- pytest + pytest-django + factory-boy
+- SQLite or PostgreSQL (via `DATABASE_URL`) — the Docker Compose stack uses Postgres
+- Docker + Docker Compose for local, one-command setup
+- pytest + pytest-django + pytest-mock + factory-boy
 - ruff (lint + format)
 - GitHub Actions CI
 
@@ -194,11 +196,36 @@ curl -u alice:password http://localhost:8000/api/datasets/1/quality/
 
 ## Installation
 
-Requirements: Python 3.12+.
+This project isn't deployed anywhere — it's meant to be run on your own machine. Uploads are
+ingested by a Celery task (see [Async ingestion](#async-ingestion) below), which needs a
+Redis broker and a running worker; Docker Compose gives you the whole stack in one command.
+
+### With Docker (recommended)
+
+Requirements: Docker + Docker Compose.
 
 ```bash
 git clone git@github.com:Pikatchu99/filebridge-api.git
 cd filebridge-api
+docker compose up --build
+```
+
+This starts Postgres, Redis, the Django app (migrating automatically on boot), and a Celery
+worker. Create a superuser in a separate terminal once it's up:
+
+```bash
+docker compose exec web python manage.py createsuperuser
+```
+
+Swagger UI: http://localhost:8000/api/docs/
+Raw OpenAPI schema: http://localhost:8000/api/schema/
+
+### Without Docker
+
+Requirements: Python 3.12+, a running Redis instance (`brew install redis && redis-server`,
+or any Redis you already have).
+
+```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
@@ -208,8 +235,12 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Swagger UI: http://localhost:8000/api/docs/
-Raw OpenAPI schema: http://localhost:8000/api/schema/
+In a second terminal, run the Celery worker — without it, uploads stay `pending` forever:
+
+```bash
+source .venv/bin/activate
+celery -A config worker --loglevel=info
+```
 
 ## Environment variables
 
@@ -222,6 +253,16 @@ See [.env.example](.env.example):
 | `ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost,127.0.0.1` |
 | `DATABASE_URL` | DB connection string (sqlite:// or postgres://) | local SQLite file |
 | `FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES` | Max upload size in bytes | `10485760` (10 MB) |
+| `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from an `.xlsx` upload's first sheet | `200000` |
+| `CELERY_BROKER_URL` | Redis URL used as the Celery broker/result backend | `redis://localhost:6379/0` |
+
+## Async ingestion
+
+`POST /api/datasets/upload/` returns `202 Accepted` immediately — parsing runs in a Celery
+task, not the request. The response body reflects whatever the dataset's status already is
+at that moment (`pending` if the worker hasn't gotten to it yet, or `ready`/`failed` if it
+was fast enough that it already has); poll `GET /api/datasets/{id}/` to watch it resolve.
+There's no dedicated "retry" endpoint yet — upload again as a new dataset (see Roadmap).
 | `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from an `.xlsx` upload's first sheet — a zip archive's uncompressed size isn't bounded by the upload size limit above | `200000` |
 
 ## Running tests
@@ -241,12 +282,12 @@ for the branching and commit conventions used in this repo.
 
 ## Roadmap (V2)
 
-- Async ingestion for large files (Celery/RQ) — the data-quality report currently loads a
-  dataset's rows into memory on every request; fine at this scale, would move to
-  precomputed counts if that changes
-- Upload size limits enforced with retry/import status
-- Preview before import, post-import webhooks, rate limiting
-- Docker + deployment to Render/Fly/Railway
+- A dedicated retry endpoint for a failed dataset, instead of uploading again as a new one
+- Preview before import (parse + show detected schema without committing rows)
+- Post-import webhooks
+- Per-API-key rate limiting (currently there's only the global anon/user throttle)
+- The data-quality report still loads a dataset's rows into memory on every request; fine
+  at this scale, would move to counts precomputed at ingestion time if that changes
 
 ## Why this project
 

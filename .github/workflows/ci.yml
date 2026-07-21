@@ -43,3 +43,16 @@ jobs:
         run: |
           pip install -q pip-audit
           pip-audit -r requirements.txt
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: docker compose config
+
+      - name: Build the app image
+        run: docker build -t filebridge-api:ci .

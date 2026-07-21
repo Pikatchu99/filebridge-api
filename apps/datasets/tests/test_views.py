@@ -1,4 +1,5 @@
 import io
+import os
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -61,6 +62,25 @@ class TestUpload:
         response = client.post(self.url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_upload_is_pending_until_the_worker_actually_runs_the_task(self, client_as, mocker):
+        # Simulates a real deployment: .delay() hands off to a worker and returns
+        # immediately, without running the task inline the way eager mode does for
+        # every other test in this file.
+        mocker.patch("apps.datasets.views.ingest_dataset_file.delay")
+        upload = SimpleUploadedFile(
+            "students.csv", b"name,email\nSarah,sarah@example.com\n", content_type="text/csv"
+        )
+
+        response = client_as.post(
+            self.url, {"name": "students", "file": upload}, format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data["status"] == Dataset.Status.PENDING
+        dataset = Dataset.objects.get(name="students")
+        assert dataset.status == Dataset.Status.PENDING
+        assert dataset.row_count == 0
+
     def test_uploads_csv_and_creates_ready_dataset(self, client_as):
         csv_content = b"name,email\nSarah,sarah@example.com\n"
         upload = SimpleUploadedFile("students.csv", csv_content, content_type="text/csv")
@@ -69,7 +89,11 @@ class TestUpload:
             self.url, {"name": "students", "file": upload}, format="multipart"
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        # 202: ingestion runs in a Celery task, not this request. Under CELERY_TASK_ALWAYS_EAGER
+        # (see conftest.py) the task has already run by the time this response is built, so
+        # status/row_count/column_count already reflect the outcome — that wouldn't hold with
+        # a real worker, where the client would poll GET .../ instead.
+        assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.data["status"] == Dataset.Status.READY
         assert response.data["row_count"] == 1
         assert response.data["column_count"] == 2
@@ -101,7 +125,10 @@ class TestUpload:
     def test_marks_dataset_failed_on_unparseable_content(self, client_as):
         upload = SimpleUploadedFile("bad.csv", b"\n,\n", content_type="text/csv")
         response = client_as.post(self.url, {"name": "bad", "file": upload}, format="multipart")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Content-level failures (bad header, encoding, etc.) surface asynchronously — the
+        # upload itself is accepted, and the failure shows up on the dataset's status.
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.data["status"] == Dataset.Status.FAILED
         assert Dataset.objects.get(name="bad").status == Dataset.Status.FAILED
 
     def test_uploads_xlsx_and_creates_ready_dataset(self, client_as):
@@ -122,7 +149,7 @@ class TestUpload:
             self.url, {"name": "students-xlsx", "file": upload}, format="multipart"
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.data["status"] == Dataset.Status.READY
         assert response.data["row_count"] == 1
         assert response.data["column_count"] == 2
@@ -233,3 +260,19 @@ class TestDestroy:
         response = client.delete(reverse("dataset-detail", args=[ready_dataset.id]))
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert Dataset.objects.filter(id=ready_dataset.id).exists()
+
+    def test_deleting_a_dataset_removes_its_source_file_from_disk(self, client_as):
+        upload = SimpleUploadedFile(
+            "students.csv", b"name,email\nSarah,sarah@example.com\n", content_type="text/csv"
+        )
+        upload_response = client_as.post(
+            reverse("dataset-upload"), {"name": "students", "file": upload}, format="multipart"
+        )
+        dataset = Dataset.objects.get(id=upload_response.data["id"])
+        file_path = dataset.source_file.path
+        assert os.path.exists(file_path)
+
+        response = client_as.delete(reverse("dataset-detail", args=[dataset.id]))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not os.path.exists(file_path)
