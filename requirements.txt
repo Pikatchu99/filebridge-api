@@ -1,0 +1,6 @@
+Django==5.2.16
+djangorestframework==3.16.1
+drf-spectacular==0.30.0
+django-filter==26.1
+django-environ==0.14.0
+psycopg[binary]==3.3.4
