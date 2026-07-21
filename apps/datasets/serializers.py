@@ -12,6 +12,7 @@ class DatasetSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "original_filename",
+            "sheet_name",
             "description",
             "status",
             "failure_reason",
@@ -39,10 +40,15 @@ def validate_upload_file(file):
 
 class DatasetUploadSerializer(serializers.ModelSerializer):
     file = serializers.FileField(write_only=True)
+    # .xlsx only: which sheet(s) to ingest, each as its own Dataset. Omit/leave empty to
+    # ingest every sheet in the workbook; meaningless (and rejected) for a .csv upload.
+    sheet_names = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_empty=True, default=list
+    )
 
     class Meta:
         model = Dataset
-        fields = ["id", "name", "description", "is_public", "webhook_url", "file"]
+        fields = ["id", "name", "description", "is_public", "webhook_url", "file", "sheet_names"]
 
     def validate_file(self, file):
         return validate_upload_file(file)
@@ -52,6 +58,12 @@ class DatasetUploadSerializer(serializers.ModelSerializer):
             return url
         return check_webhook_url(url)
 
+    def validate(self, attrs):
+        is_xlsx = attrs["file"].name.lower().endswith(".xlsx")
+        if attrs.get("sheet_names") and not is_xlsx:
+            raise serializers.ValidationError({"sheet_names": "Only applies to .xlsx uploads."})
+        return attrs
+
 
 class DatasetPreviewSerializer(serializers.Serializer):
     """Same file validation as upload, but preview never creates a Dataset — see the
@@ -59,6 +71,9 @@ class DatasetPreviewSerializer(serializers.Serializer):
     """
 
     file = serializers.FileField()
+    # .xlsx only: which sheet to preview. Omit to preview the first sheet — see
+    # `available_sheets` in the response for what else you could ask for.
+    sheet_name = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_file(self, file):
         return validate_upload_file(file)
@@ -74,6 +89,7 @@ class DatasetPreviewResultSerializer(serializers.Serializer):
     columns = PreviewColumnSerializer(many=True)
     row_count = serializers.IntegerField()
     sample_rows = serializers.ListField(child=serializers.DictField())
+    available_sheets = serializers.ListField(child=serializers.CharField())
 
 
 class DatasetVisibilitySerializer(serializers.ModelSerializer):

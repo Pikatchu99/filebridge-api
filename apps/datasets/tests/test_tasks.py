@@ -57,6 +57,35 @@ class TestIngestDatasetFileTask:
         assert dataset.status == Dataset.Status.READY
         assert dataset.row_count == 1
 
+    def test_ingests_the_datasets_stored_sheet_name(self, owner):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+        students = workbook.create_sheet("Students")
+        students.append(["name"])
+        staff = workbook.create_sheet("Staff")
+        staff.append(["name", "role"])
+        staff.append(["Marc", "Teacher"])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+
+        dataset = Dataset.objects.create(
+            owner=owner,
+            name="staff",
+            original_filename="school.xlsx",
+            sheet_name="Staff",
+        )
+        dataset.source_file.save("school.xlsx", ContentFile(buffer.read()), save=True)
+
+        ingest_dataset_file(dataset.id)
+
+        dataset.refresh_from_db()
+        assert dataset.status == Dataset.Status.READY
+        assert dataset.row_count == 1
+        assert dataset.column_count == 2
+
     def test_swallows_ingestion_errors_the_dataset_already_recorded(self, owner):
         dataset = Dataset.objects.create(owner=owner, name="bad", original_filename="bad.csv")
         dataset.source_file.save("bad.csv", ContentFile(b""), save=True)
