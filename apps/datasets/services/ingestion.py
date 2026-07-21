@@ -1,6 +1,6 @@
 """CSV ingestion: parse an uploaded file into Dataset/DatasetColumn/DatasetRow rows.
 
-V1 scope is CSV only (see project scope doc) — Excel support is a V2 concern.
+V1 scope is CSV only — Excel support is a V2 concern (see README roadmap).
 """
 
 import csv

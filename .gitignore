@@ -32,3 +32,6 @@ htmlcov/
 
 # macOS
 .DS_Store
+
+# Personal notes — not for the public repo
+INTERVIEW_PREP.md
