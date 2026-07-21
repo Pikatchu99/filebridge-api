@@ -1,8 +1,10 @@
 """Ingestion: parse an uploaded CSV or Excel file into Dataset/DatasetColumn/DatasetRow rows.
 
 Both formats are normalized to the same shape (a list of header strings, a list of
-string rows) before sharing the exact same column-detection and row-creation logic —
-see _parse_csv/_parse_xlsx vs _ingest_rows below.
+string rows) via parse_csv_rows/parse_xlsx_rows — pure parsing, no Dataset involved —
+before ingest_csv_file/ingest_xlsx_file and preview_file share what happens next:
+type detection (_detect_column_types) and, for the ingest_* functions only, writing to
+the database (_ingest_rows).
 """
 
 import csv
@@ -18,6 +20,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
 from apps.datasets.exceptions import (
+    DatasetIngestionError,
     EmptyFileError,
     InvalidCsvError,
     InvalidExcelError,
@@ -27,6 +30,8 @@ from apps.datasets.models import Dataset, DatasetColumn, DatasetRow
 from apps.datasets.services.type_detection import detect_column_type
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+Rows = tuple[list[str], list[list[str]]]
 
 
 def normalize_column_name(raw: str, seen: dict | None = None) -> str:
@@ -53,38 +58,30 @@ def normalize_column_name(raw: str, seen: dict | None = None) -> str:
     return candidate
 
 
-def ingest_csv_file(dataset: Dataset, file_obj) -> None:
-    """Parse `file_obj` as CSV and populate columns/rows for `dataset`.
-
-    Marks the dataset FAILED (with a reason) and re-raises on unusable input,
-    so callers can surface a clean 4xx instead of a 500.
-    """
-    raw_bytes = _read_or_fail_empty(dataset, file_obj)
+def parse_csv_rows(raw_bytes: bytes) -> Rows:
+    """Pure CSV parsing: bytes in, (header, data_rows) out. No Dataset involved."""
+    _raise_if_empty(raw_bytes)
 
     try:
         text = raw_bytes.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
-        _fail(dataset, "The uploaded file isn't valid UTF-8 text.")
         raise InvalidCsvError("The uploaded file isn't valid UTF-8 text.") from exc
 
     reader = csv.reader(io.StringIO(text))
     try:
         header = next(reader, [])
     except csv.Error as exc:
-        _fail(dataset, "The uploaded file isn't valid CSV.")
         raise InvalidCsvError("The uploaded file isn't valid CSV.") from exc
 
     if not header or all(not cell.strip() for cell in header):
-        _fail(dataset, "The uploaded file has no header row.")
         raise NoHeaderError("The uploaded file has no header row.")
 
     try:
         data_rows = list(reader)
     except csv.Error as exc:
-        _fail(dataset, "The uploaded file isn't valid CSV.")
         raise InvalidCsvError("The uploaded file isn't valid CSV.") from exc
 
-    _ingest_rows(dataset, header, data_rows)
+    return header, data_rows
 
 
 _INVALID_WORKBOOK_ERRORS = (
@@ -97,11 +94,9 @@ _INVALID_WORKBOOK_ERRORS = (
 )
 
 
-def ingest_xlsx_file(dataset: Dataset, file_obj) -> None:
-    """Parse `file_obj` as an Excel workbook (first sheet only) and populate
-    columns/rows for `dataset`. Same failure-handling contract as ingest_csv_file.
-    """
-    raw_bytes = _read_or_fail_empty(dataset, file_obj)
+def parse_xlsx_rows(raw_bytes: bytes) -> Rows:
+    """Pure Excel parsing (first sheet only): bytes in, (header, data_rows) out."""
+    _raise_if_empty(raw_bytes)
 
     workbook = None
     try:
@@ -119,11 +114,7 @@ def ingest_xlsx_file(dataset: Dataset, file_obj) -> None:
                     f"The workbook has more than {settings.FILEBRIDGE_MAX_XLSX_ROWS} rows."
                 )
             sheet_rows.append([_stringify_cell(cell) for cell in row])
-    except InvalidExcelError as exc:
-        _fail(dataset, str(exc))
-        raise
     except _INVALID_WORKBOOK_ERRORS as exc:
-        _fail(dataset, "The uploaded file isn't a valid Excel (.xlsx) workbook.")
         raise InvalidExcelError("The uploaded file isn't a valid Excel (.xlsx) workbook.") from exc
     finally:
         if workbook is not None:
@@ -131,10 +122,9 @@ def ingest_xlsx_file(dataset: Dataset, file_obj) -> None:
 
     header = sheet_rows[0] if sheet_rows else []
     if not header or all(not cell.strip() for cell in header):
-        _fail(dataset, "The uploaded file has no header row.")
         raise NoHeaderError("The uploaded file has no header row.")
 
-    _ingest_rows(dataset, header, sheet_rows[1:])
+    return header, sheet_rows[1:]
 
 
 def _stringify_cell(value) -> str:
@@ -156,24 +146,88 @@ def _stringify_cell(value) -> str:
     return str(value)
 
 
-def _read_or_fail_empty(dataset: Dataset, file_obj) -> bytes:
-    raw_bytes = file_obj.read()
+def _raise_if_empty(raw_bytes: bytes) -> None:
     if not raw_bytes or not raw_bytes.strip():
-        _fail(dataset, "The uploaded file is empty.")
         raise EmptyFileError("The uploaded file is empty.")
-    return raw_bytes
+
+
+def _detect_column_types(header: list[str], data_rows: list[list[str]]) -> list[str]:
+    columns_values: list[list[str]] = [[] for _ in header]
+    for row in data_rows:
+        for i in range(len(header)):
+            columns_values[i].append(row[i] if i < len(row) else "")
+    return [detect_column_type(values) for values in columns_values]
+
+
+def ingest_csv_file(dataset: Dataset, file_obj) -> None:
+    """Parse `file_obj` as CSV and populate columns/rows for `dataset`.
+
+    Marks the dataset FAILED (with a reason) and re-raises on unusable input,
+    so callers can surface a clean 4xx instead of a 500.
+    """
+    try:
+        header, data_rows = parse_csv_rows(file_obj.read())
+    except DatasetIngestionError as exc:
+        _fail(dataset, str(exc))
+        raise
+    _ingest_rows(dataset, header, data_rows)
+
+
+def ingest_xlsx_file(dataset: Dataset, file_obj) -> None:
+    """Parse `file_obj` as an Excel workbook (first sheet only) and populate
+    columns/rows for `dataset`. Same failure-handling contract as ingest_csv_file.
+    """
+    try:
+        header, data_rows = parse_xlsx_rows(file_obj.read())
+    except DatasetIngestionError as exc:
+        _fail(dataset, str(exc))
+        raise
+    _ingest_rows(dataset, header, data_rows)
+
+
+# Preview shows a taste of the data, not the whole thing — this project's scope is CSV
+# and spreadsheet-sized files, not a data lake, so a fixed small sample is enough to
+# confirm "yes, this is the file/schema I meant to upload" before committing to it.
+PREVIEW_SAMPLE_SIZE = 10
+
+
+def preview_file(file_obj, filename: str) -> dict:
+    """Parse a file the same way ingest_csv_file/ingest_xlsx_file would, but return the
+    detected schema and a small row sample instead of writing anything to the database.
+    Raises the same DatasetIngestionError subclasses on unusable input — there's no
+    Dataset to mark FAILED here, so callers turn the exception into a 400 directly.
+    """
+    parse = parse_xlsx_rows if filename.lower().endswith(".xlsx") else parse_csv_rows
+    header, data_rows = parse(file_obj.read())
+
+    seen: dict[str, int] = {}
+    normalized_names = [normalize_column_name(cell, seen=seen) for cell in header]
+    detected_types = _detect_column_types(header, data_rows)
+
+    columns = [
+        {
+            "name_original": original,
+            "name_normalized": normalized,
+            "detected_type": col_type,
+        }
+        for original, normalized, col_type in zip(header, normalized_names, detected_types)
+    ]
+    sample_rows = [
+        {
+            normalized_names[i]: (row[i] if i < len(row) else "")
+            for i in range(len(normalized_names))
+        }
+        for row in data_rows[:PREVIEW_SAMPLE_SIZE]
+    ]
+
+    return {"columns": columns, "row_count": len(data_rows), "sample_rows": sample_rows}
 
 
 def _ingest_rows(dataset: Dataset, header: list[str], data_rows: list[list[str]]) -> None:
     """Shared second half of ingestion: normalize headers, detect types, bulk-create."""
     seen: dict[str, int] = {}
     normalized_names = [normalize_column_name(cell, seen=seen) for cell in header]
-
-    columns_values: list[list[str]] = [[] for _ in normalized_names]
-    for row in data_rows:
-        for i in range(len(normalized_names)):
-            columns_values[i].append(row[i] if i < len(row) else "")
-    detected_types = [detect_column_type(values) for values in columns_values]
+    detected_types = _detect_column_types(header, data_rows)
 
     with transaction.atomic():
         DatasetColumn.objects.filter(dataset=dataset).delete()

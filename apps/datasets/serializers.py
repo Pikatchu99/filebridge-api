@@ -23,6 +23,18 @@ class DatasetSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+ALLOWED_UPLOAD_EXTENSIONS = (".csv", ".xlsx")
+
+
+def validate_upload_file(file):
+    if not file.name.lower().endswith(ALLOWED_UPLOAD_EXTENSIONS):
+        raise serializers.ValidationError("Only .csv or .xlsx files are supported.")
+    if file.size > settings.FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES:
+        max_mb = settings.FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)
+        raise serializers.ValidationError(f"File exceeds the {max_mb:.0f} MB size limit.")
+    return file
+
+
 class DatasetUploadSerializer(serializers.ModelSerializer):
     file = serializers.FileField(write_only=True)
 
@@ -30,15 +42,31 @@ class DatasetUploadSerializer(serializers.ModelSerializer):
         model = Dataset
         fields = ["id", "name", "description", "is_public", "file"]
 
-    ALLOWED_EXTENSIONS = (".csv", ".xlsx")
+    def validate_file(self, file):
+        return validate_upload_file(file)
+
+
+class DatasetPreviewSerializer(serializers.Serializer):
+    """Same file validation as upload, but preview never creates a Dataset — see the
+    `preview` action, which parses the file and discards it without persisting anything.
+    """
+
+    file = serializers.FileField()
 
     def validate_file(self, file):
-        if not file.name.lower().endswith(self.ALLOWED_EXTENSIONS):
-            raise serializers.ValidationError("Only .csv or .xlsx files are supported.")
-        if file.size > settings.FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES:
-            max_mb = settings.FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)
-            raise serializers.ValidationError(f"File exceeds the {max_mb:.0f} MB size limit.")
-        return file
+        return validate_upload_file(file)
+
+
+class PreviewColumnSerializer(serializers.Serializer):
+    name_original = serializers.CharField()
+    name_normalized = serializers.CharField()
+    detected_type = serializers.CharField()
+
+
+class DatasetPreviewResultSerializer(serializers.Serializer):
+    columns = PreviewColumnSerializer(many=True)
+    row_count = serializers.IntegerField()
+    sample_rows = serializers.ListField(child=serializers.DictField())
 
 
 class DatasetVisibilitySerializer(serializers.ModelSerializer):
