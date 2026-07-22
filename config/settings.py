@@ -28,6 +28,15 @@ SECRET_KEY = (
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
+# The frontend (a separate SPA, e.g. Next.js dev server) runs on its own origin/port,
+# so browser requests need explicit CORS headers — see doc_frontend.md §1.3. Basic Auth
+# credentials are sent via an explicit Authorization header (not cookies), so no
+# CORS_ALLOW_CREDENTIALS is needed.
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=["http://localhost:3000", "http://localhost:3001"],
+)
+
 # Security headers — irrelevant in local dev (plain HTTP), enforced once DEBUG is off.
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
@@ -49,6 +58,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
     "rest_framework",
     "drf_spectacular",
     "django_filters",
@@ -57,6 +67,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",

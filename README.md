@@ -339,6 +339,7 @@ See [.env.example](.env.example):
 | `SECRET_KEY` | Django secret key | dev-only insecure value |
 | `DEBUG` | Debug mode | `False` |
 | `ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost,127.0.0.1` |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated origins allowed to call the API from a browser (e.g. a separate frontend dev server) | `http://localhost:3000,http://localhost:3001` |
 | `DATABASE_URL` | DB connection string (sqlite:// or postgres://) | local SQLite file |
 | `FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES` | Max upload size in bytes | `10485760` (10 MB) |
 | `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from a single `.xlsx` sheet | `200000` |
