@@ -25,9 +25,11 @@ def ingest_dataset_file(dataset_id: int) -> None:
         return
 
     is_xlsx = dataset.source_file.name.lower().endswith(".xlsx")
-    ingest = ingest_xlsx_file if is_xlsx else ingest_csv_file
     try:
-        ingest(dataset, dataset.source_file)
+        if is_xlsx:
+            ingest_xlsx_file(dataset, dataset.source_file, sheet_name=dataset.sheet_name or None)
+        else:
+            ingest_csv_file(dataset, dataset.source_file)
     except DatasetIngestionError:
         logger.info("Ingestion failed for dataset %s: %s", dataset_id, dataset.failure_reason)
 

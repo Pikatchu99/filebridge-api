@@ -61,6 +61,45 @@ class TestPreviewFile:
         assert result["row_count"] == 1
         assert [c["name_normalized"] for c in result["columns"]] == ["name", "email"]
 
+    def test_csv_reports_no_available_sheets(self):
+        result = preview_file(csv_file("name\nSarah\n"), "leads.csv")
+        assert result["available_sheets"] == []
+
+    def test_xlsx_lists_available_sheets_and_previews_the_first_by_default(self):
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+        students = workbook.create_sheet("Students")
+        students.append(["name"])
+        students.append(["Sarah"])
+        staff = workbook.create_sheet("Staff")
+        staff.append(["name", "role"])
+        staff.append(["Marc", "Teacher"])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+
+        result = preview_file(buffer, "school.xlsx")
+
+        assert result["available_sheets"] == ["Students", "Staff"]
+        assert [c["name_normalized"] for c in result["columns"]] == ["name"]
+
+    def test_xlsx_can_preview_a_specific_sheet(self):
+        workbook = Workbook()
+        workbook.remove(workbook.active)
+        students = workbook.create_sheet("Students")
+        students.append(["name"])
+        staff = workbook.create_sheet("Staff")
+        staff.append(["name", "role"])
+        staff.append(["Marc", "Teacher"])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+
+        result = preview_file(buffer, "school.xlsx", sheet_name="Staff")
+
+        assert [c["name_normalized"] for c in result["columns"]] == ["name", "role"]
+        assert result["row_count"] == 1
+
     def test_raises_on_empty_file(self):
         with pytest.raises(EmptyFileError):
             preview_file(csv_file(""), "empty.csv")

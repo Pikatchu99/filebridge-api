@@ -17,6 +17,11 @@ class Dataset(models.Model):
     # with no access to the original request) has something to read from. Not exposed
     # via the API — see DatasetSerializer.
     source_file = models.FileField(upload_to="uploads/%Y/%m/%d/", default="")
+    # Which worksheet this dataset came from — only meaningful for .xlsx uploads (a CSV
+    # has no concept of sheets). Blank means "first sheet" for legacy datasets created
+    # before multi-sheet support existed. An .xlsx upload with multiple sheets creates
+    # one Dataset per sheet, each with its own sheet_name — see DatasetViewSet.upload.
+    sheet_name = models.CharField(max_length=255, blank=True, default="")
     description = models.TextField(blank=True, default="")
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING)
     failure_reason = models.CharField(max_length=255, blank=True, default="")

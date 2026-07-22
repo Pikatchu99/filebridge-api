@@ -63,24 +63,46 @@ bridge between "I have a CSV" and "I have a real API".
 ## API examples
 
 Preview a file before committing to it — parses it and returns the detected schema plus a
-10-row sample, without creating a dataset or writing anything:
+10-row sample, without creating a dataset or writing anything. For `.xlsx`, the response
+also lists `available_sheets`; pass `sheet_name` to preview a specific one (defaults to
+the first sheet):
 
 ```bash
 curl -u alice:password -X POST http://localhost:8000/api/datasets/preview/ \
   -F "file=@inscriptions.csv"
+
+curl -u alice:password -X POST http://localhost:8000/api/datasets/preview/ \
+  -F "file=@school.xlsx" \
+  -F "sheet_name=Staff"
 ```
 
-Upload a CSV or Excel file (creates the dataset; the format is picked from the file
-extension — see [Async ingestion](#async-ingestion) for what happens next):
+Upload a CSV or Excel file (the format is picked from the file extension — see
+[Async ingestion](#async-ingestion) for what happens next). The response is always a
+**list** of datasets, even for a CSV (always exactly one):
 
 ```bash
 curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
   -F "name=inscriptions" \
   -F "file=@inscriptions.csv"
+```
 
+An `.xlsx` upload creates **one dataset per sheet** — by default, every sheet in the
+workbook; pass `sheet_names` (repeated) to ingest only specific ones. A single-sheet
+workbook (or a request naming exactly one sheet) keeps the plain `name` you gave; with
+more than one, each dataset is named `{name}-{sheet-slug}`:
+
+```bash
+# Every sheet becomes its own dataset: inscriptions-students, inscriptions-staff, ...
 curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
   -F "name=inscriptions" \
-  -F "file=@inscriptions.xlsx"
+  -F "file=@school.xlsx"
+
+# Only these two sheets
+curl -u alice:password -X POST http://localhost:8000/api/datasets/upload/ \
+  -F "name=inscriptions" \
+  -F "file=@school.xlsx" \
+  -F "sheet_names=Students" \
+  -F "sheet_names=Staff"
 ```
 
 Optionally, get notified when ingestion finishes by passing a `webhook_url` at upload time
@@ -249,8 +271,9 @@ doesn't close (DNS rebinding between validation and the actual request).
 
 ## Data model
 
-- **Dataset** — one uploaded file: owner, name, status (`pending`/`ready`/`failed`), row/column
-  counts, visibility.
+- **Dataset** — one uploaded file, or one sheet of an uploaded workbook: owner, name,
+  status (`pending`/`ready`/`failed`), row/column counts, visibility, and `sheet_name`
+  (blank for CSVs and pre-multi-sheet datasets, meaning "first sheet").
 - **DatasetColumn** — one detected column per dataset: original header, normalized name,
   detected type, position.
 - **DatasetRow** — one row per dataset, stored as a `JSONField` keyed by normalized column
@@ -318,7 +341,8 @@ See [.env.example](.env.example):
 | `ALLOWED_HOSTS` | Comma-separated allowed hosts | `localhost,127.0.0.1` |
 | `DATABASE_URL` | DB connection string (sqlite:// or postgres://) | local SQLite file |
 | `FILEBRIDGE_MAX_UPLOAD_SIZE_BYTES` | Max upload size in bytes | `10485760` (10 MB) |
-| `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from an `.xlsx` upload's first sheet | `200000` |
+| `FILEBRIDGE_MAX_XLSX_ROWS` | Max rows read from a single `.xlsx` sheet | `200000` |
+| `FILEBRIDGE_MAX_SHEETS_PER_UPLOAD` | Max sheets ingested from one `.xlsx` upload (one Dataset + one queued task per sheet) | `50` |
 | `CELERY_BROKER_URL` | Redis URL used as the Celery broker/result backend | `redis://localhost:6379/0` |
 | `THROTTLE_RATE_ANON` | Rate limit for unauthenticated requests, per IP | `20/min` |
 | `THROTTLE_RATE_USER` | Rate limit for session/basic-auth requests, per user | `100/min` |

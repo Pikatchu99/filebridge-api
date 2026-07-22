@@ -76,7 +76,8 @@ class TestUpload:
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.data["status"] == Dataset.Status.PENDING
+        assert len(response.data) == 1
+        assert response.data[0]["status"] == Dataset.Status.PENDING
         dataset = Dataset.objects.get(name="students")
         assert dataset.status == Dataset.Status.PENDING
         assert dataset.row_count == 0
@@ -94,9 +95,10 @@ class TestUpload:
         # status/row_count/column_count already reflect the outcome — that wouldn't hold with
         # a real worker, where the client would poll GET .../ instead.
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.data["status"] == Dataset.Status.READY
-        assert response.data["row_count"] == 1
-        assert response.data["column_count"] == 2
+        assert len(response.data) == 1
+        assert response.data[0]["status"] == Dataset.Status.READY
+        assert response.data[0]["row_count"] == 1
+        assert response.data[0]["column_count"] == 2
         assert Dataset.objects.filter(name="students").exists()
 
     def test_rejects_non_csv_extension(self, client_as):
@@ -128,7 +130,7 @@ class TestUpload:
         # Content-level failures (bad header, encoding, etc.) surface asynchronously — the
         # upload itself is accepted, and the failure shows up on the dataset's status.
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.data["status"] == Dataset.Status.FAILED
+        assert response.data[0]["status"] == Dataset.Status.FAILED
         assert Dataset.objects.get(name="bad").status == Dataset.Status.FAILED
 
     def test_accepts_a_valid_webhook_url(self, client_as, mocker):
@@ -142,7 +144,7 @@ class TestUpload:
             format="multipart",
         )
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.data["webhook_url"] == "https://8.8.8.8/hook"
+        assert response.data[0]["webhook_url"] == "https://8.8.8.8/hook"
 
     def test_rejects_a_webhook_url_pointing_at_a_private_address(self, client_as):
         upload = SimpleUploadedFile(
@@ -175,9 +177,10 @@ class TestUpload:
         )
 
         assert response.status_code == status.HTTP_202_ACCEPTED
-        assert response.data["status"] == Dataset.Status.READY
-        assert response.data["row_count"] == 1
-        assert response.data["column_count"] == 2
+        assert len(response.data) == 1
+        assert response.data[0]["status"] == Dataset.Status.READY
+        assert response.data[0]["row_count"] == 1
+        assert response.data[0]["column_count"] == 2
 
 
 class TestListAndRetrieve:
@@ -293,7 +296,7 @@ class TestDestroy:
         upload_response = client_as.post(
             reverse("dataset-upload"), {"name": "students", "file": upload}, format="multipart"
         )
-        dataset = Dataset.objects.get(id=upload_response.data["id"])
+        dataset = Dataset.objects.get(id=upload_response.data[0]["id"])
         file_path = dataset.source_file.path
         assert os.path.exists(file_path)
 

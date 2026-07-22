@@ -193,6 +193,12 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = DATA_UPLOAD_MAX_MEMORY_SIZE
 # upload. This caps rows read from the first worksheet regardless of compression ratio.
 FILEBRIDGE_MAX_XLSX_ROWS = env.int("FILEBRIDGE_MAX_XLSX_ROWS", default=200_000)
 
+# A workbook's sheet count isn't bounded by anything else either — one upload creates
+# one Dataset (and queues one Celery task) per sheet ingested, so a workbook crafted
+# with thousands of tiny/empty sheets could otherwise turn a single upload request into
+# thousands of dataset rows and queued tasks.
+FILEBRIDGE_MAX_SHEETS_PER_UPLOAD = env.int("FILEBRIDGE_MAX_SHEETS_PER_UPLOAD", default=50)
+
 
 # Celery — ingestion runs in a worker process, not the request/response cycle, so a
 # large file doesn't tie up a web worker or hit a request timeout. See config/celery.py

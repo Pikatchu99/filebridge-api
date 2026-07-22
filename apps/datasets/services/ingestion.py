@@ -94,14 +94,42 @@ _INVALID_WORKBOOK_ERRORS = (
 )
 
 
-def parse_xlsx_rows(raw_bytes: bytes) -> Rows:
-    """Pure Excel parsing (first sheet only): bytes in, (header, data_rows) out."""
+def list_workbook_sheets(raw_bytes: bytes) -> list[str]:
+    """Sheet names in workbook order — lets a caller (preview, or the upload endpoint
+    when no sheet_name is specified) show what's available without parsing every row.
+    """
+    _raise_if_empty(raw_bytes)
+    workbook = None
+    try:
+        workbook = load_workbook(io.BytesIO(raw_bytes), read_only=True)
+        return list(workbook.sheetnames)
+    except _INVALID_WORKBOOK_ERRORS as exc:
+        raise InvalidExcelError("The uploaded file isn't a valid Excel (.xlsx) workbook.") from exc
+    finally:
+        if workbook is not None:
+            workbook.close()
+
+
+def parse_xlsx_rows(raw_bytes: bytes, sheet_name: str | None = None) -> Rows:
+    """Pure Excel parsing: bytes in, (header, data_rows) out, for one worksheet.
+
+    `sheet_name=None` means the first sheet in the workbook (the pre-multi-sheet-support
+    default, still used for legacy datasets and single-sheet workbooks).
+    """
     _raise_if_empty(raw_bytes)
 
     workbook = None
     try:
         workbook = load_workbook(io.BytesIO(raw_bytes), read_only=True, data_only=True)
-        sheet = workbook.worksheets[0]
+        if sheet_name is None:
+            sheet = workbook.worksheets[0]
+        elif sheet_name not in workbook.sheetnames:
+            raise InvalidExcelError(
+                f"Sheet '{sheet_name}' not found. Available sheets: "
+                f"{', '.join(workbook.sheetnames)}."
+            )
+        else:
+            sheet = workbook[sheet_name]
 
         # openpyxl's read_only mode parses each sheet's XML lazily while iterating, so a
         # malformed worksheet part can raise here too, not just from load_workbook() —
@@ -173,12 +201,13 @@ def ingest_csv_file(dataset: Dataset, file_obj) -> None:
     _ingest_rows(dataset, header, data_rows)
 
 
-def ingest_xlsx_file(dataset: Dataset, file_obj) -> None:
-    """Parse `file_obj` as an Excel workbook (first sheet only) and populate
-    columns/rows for `dataset`. Same failure-handling contract as ingest_csv_file.
+def ingest_xlsx_file(dataset: Dataset, file_obj, sheet_name: str | None = None) -> None:
+    """Parse `file_obj` as an Excel workbook and populate columns/rows for `dataset`
+    from `sheet_name` (or the first sheet, if not given). Same failure-handling
+    contract as ingest_csv_file.
     """
     try:
-        header, data_rows = parse_xlsx_rows(file_obj.read())
+        header, data_rows = parse_xlsx_rows(file_obj.read(), sheet_name=sheet_name)
     except DatasetIngestionError as exc:
         _fail(dataset, str(exc))
         raise
@@ -191,14 +220,23 @@ def ingest_xlsx_file(dataset: Dataset, file_obj) -> None:
 PREVIEW_SAMPLE_SIZE = 10
 
 
-def preview_file(file_obj, filename: str) -> dict:
+def preview_file(file_obj, filename: str, sheet_name: str | None = None) -> dict:
     """Parse a file the same way ingest_csv_file/ingest_xlsx_file would, but return the
     detected schema and a small row sample instead of writing anything to the database.
     Raises the same DatasetIngestionError subclasses on unusable input — there's no
     Dataset to mark FAILED here, so callers turn the exception into a 400 directly.
+
+    For .xlsx, also returns `available_sheets` (workbook order) — useful for a client
+    to let the user pick which sheet(s) to actually upload before committing to it.
     """
-    parse = parse_xlsx_rows if filename.lower().endswith(".xlsx") else parse_csv_rows
-    header, data_rows = parse(file_obj.read())
+    raw_bytes = file_obj.read()
+    is_xlsx = filename.lower().endswith(".xlsx")
+
+    available_sheets = list_workbook_sheets(raw_bytes) if is_xlsx else []
+    if is_xlsx:
+        header, data_rows = parse_xlsx_rows(raw_bytes, sheet_name=sheet_name)
+    else:
+        header, data_rows = parse_csv_rows(raw_bytes)
 
     seen: dict[str, int] = {}
     normalized_names = [normalize_column_name(cell, seen=seen) for cell in header]
@@ -220,7 +258,12 @@ def preview_file(file_obj, filename: str) -> dict:
         for row in data_rows[:PREVIEW_SAMPLE_SIZE]
     ]
 
-    return {"columns": columns, "row_count": len(data_rows), "sample_rows": sample_rows}
+    return {
+        "columns": columns,
+        "row_count": len(data_rows),
+        "sample_rows": sample_rows,
+        "available_sheets": available_sheets,
+    }
 
 
 def _ingest_rows(dataset: Dataset, header: list[str], data_rows: list[list[str]]) -> None:

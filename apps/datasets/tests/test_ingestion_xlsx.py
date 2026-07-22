@@ -8,7 +8,7 @@ from openpyxl import Workbook
 
 from apps.datasets.exceptions import EmptyFileError, InvalidExcelError, NoHeaderError
 from apps.datasets.models import Dataset, DatasetColumn, DatasetRow
-from apps.datasets.services.ingestion import ingest_xlsx_file
+from apps.datasets.services.ingestion import ingest_xlsx_file, list_workbook_sheets
 
 pytestmark = pytest.mark.django_db
 
@@ -20,6 +20,19 @@ def xlsx_file(rows: list[list]) -> io.BytesIO:
     sheet = workbook.active
     for row in rows:
         sheet.append(row)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def xlsx_file_multi_sheet(sheets: dict[str, list[list]]) -> io.BytesIO:
+    workbook = Workbook()
+    workbook.remove(workbook.active)
+    for sheet_name, rows in sheets.items():
+        sheet = workbook.create_sheet(sheet_name)
+        for row in rows:
+            sheet.append(row)
     buffer = io.BytesIO()
     workbook.save(buffer)
     buffer.seek(0)
@@ -182,3 +195,49 @@ class TestIngestXlsxFile:
         dataset.refresh_from_db()
         assert dataset.status == Dataset.Status.FAILED
         assert "rows" in dataset.failure_reason.lower()
+
+    def test_ingests_a_specific_named_sheet(self, dataset):
+        content = xlsx_file_multi_sheet(
+            {
+                "Students": [["name"], ["Sarah"]],
+                "Staff": [["name", "role"], ["Marc", "Teacher"], ["Lea", "Admin"]],
+            }
+        )
+        ingest_xlsx_file(dataset, content, sheet_name="Staff")
+
+        dataset.refresh_from_db()
+        assert dataset.status == Dataset.Status.READY
+        assert dataset.row_count == 2
+        assert dataset.column_count == 2
+
+    def test_defaults_to_the_first_sheet_when_none_is_given(self, dataset):
+        content = xlsx_file_multi_sheet(
+            {
+                "Students": [["name"], ["Sarah"]],
+                "Staff": [["name", "role"], ["Marc", "Teacher"]],
+            }
+        )
+        ingest_xlsx_file(dataset, content)
+
+        dataset.refresh_from_db()
+        assert dataset.column_count == 1  # "Students" sheet, the first one
+
+    def test_raises_a_clear_error_for_an_unknown_sheet_name(self, dataset):
+        content = xlsx_file_multi_sheet({"Students": [["name"], ["Sarah"]]})
+
+        with pytest.raises(InvalidExcelError, match="Nonexistent"):
+            ingest_xlsx_file(dataset, content, sheet_name="Nonexistent")
+        dataset.refresh_from_db()
+        assert dataset.status == Dataset.Status.FAILED
+
+
+class TestListWorkbookSheets:
+    def test_returns_sheet_names_in_workbook_order(self):
+        content = xlsx_file_multi_sheet(
+            {"Students": [["name"]], "Staff": [["name"]], "Alumni": [["name"]]}
+        )
+        assert list_workbook_sheets(content.read()) == ["Students", "Staff", "Alumni"]
+
+    def test_raises_on_corrupt_content(self):
+        with pytest.raises(InvalidExcelError):
+            list_workbook_sheets(b"not an xlsx file")
